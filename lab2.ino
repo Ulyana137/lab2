@@ -1,20 +1,25 @@
-#include <Servo.h>
+#include <Servo.h>  
+#include <ArduinoSort.h>
 
-const int sensorPin = A0;
+const int irSensorPin = A0;
 const float voltsPerMeasurement = 5.0/1024.0;
 
 const int echoPin = 8;
-const int trigPin = 9;
+const int trigPin = 11;
 
 Servo UsServo;
 int UsPosition = 0;
 Servo IrServo;
 int IrPosition = 0;
 
+int filterWindowUs = 8;
+int distsUs[8] = {0} ;
+int currentFilterIndex = 0;
+
 void setup()
 {
-  baseServo.attach(10);
-  laserServo.attach(9);
+  UsServo.attach(10);
+  IrServo.attach(9);
   updatePositions();
   Serial.begin(115200);
 
@@ -28,10 +33,11 @@ void loop() {
   irDistance = constrain(irDistance, 20, 120);
   IrPosition = convertToDegrees(irDistance);
   
-  float usDistance = readDistUs();
+  float usDistance = readFilteredUs();
   usDistance = constrain(usDistance, 20, 120);
   UsPosition = convertToDegrees(usDistance);
-
+  
+  Serial.print(UsPosition);Serial.print(" ");Serial.println(IrPosition);
 
   UsServo.write(UsPosition);
   IrServo.write(IrPosition);
@@ -42,10 +48,10 @@ void loop() {
 int convertToDegrees(float dist)
 {
   float constrained = constrain(dist, 20, 120);
-  return (int) constrain((constrained - 20)*1.8 , 0, 180);
+  return (int)(constrained - 20) * 1.8;
 }
 
-float readDistUs()
+float readLenUs()
 {
   const float speedOfSoundMPerSec = 340.0;
   const float speedOfSoundCmPerUs = speedOfSoundMPerSec / 10000.0;
@@ -66,7 +72,6 @@ float readPulseUs()
 float readDistIR(){
   float volts = readAnalogIR() * voltsPerMeasurement;
   return 65 * pow(volts, -1.10); // for big IR sensor (SHARP 2Y0A02)
-  ///return pow(14.7737/volts, 1.2134); // for small IR sensor (SHARP 2Y0A21)
 }
 
 float readAnalogIR()
@@ -77,7 +82,7 @@ float readAnalogIR()
   int n = 15;
   for (int i = 0; i < n; i++)
   {
-    int cur = analogRead(sensorPin);
+    int cur = analogRead(irSensorPin);
     if (cur > maxV)
     {
       maxV = cur;
@@ -90,4 +95,24 @@ float readAnalogIR()
     delay(6);
   }
   return (sum - maxV - minV) / (float)(n - 2);
+}
+
+float readFilteredUs()
+{
+  int cur = readLenUs();
+  distsUs[currentFilterIndex]=cur;
+  currentFilterIndex = (currentFilterIndex + 1) % filterWindowUs;
+  delay(6);
+  int curDist[filterWindowUs] = {0};
+  for (int i = 0; i < filterWindowUs; i++){
+    curDist[i] = distsUs[i];
+  }
+  sortArray(curDist,filterWindowUs);
+  return curDist[int(filterWindowUs/2)];
+}
+
+void updatePositions(){
+  UsServo.write(UsPosition);
+  IrServo.write(IrPosition);
+  Serial.print(UsPosition);Serial.print(" ");Serial.print(IrPosition);
 }
